@@ -34,6 +34,20 @@
             border-radius: 8px;
         }
         
+        /* Loading Spinner */
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 99999;
+            display: none;
+            justify-content: center;
+            align-items: center;
+        }
+        
         /* Mobile Toolbar */
         .fc-header-toolbar {
             display: flex;
@@ -47,30 +61,7 @@
             margin: 5px 0;
         }
         
-        /* Buttons */
-        .fc-button {
-            padding: 6px 10px;
-            font-size: 0.9rem;
-        }
-        
-        /* Events */
-        .fc-event {
-            font-size: 0.85rem;
-            padding: 2px 4px;
-            margin: 1px 0;
-        }
-        
-        /* Modals */
-        .modal-content {
-            background-color: #2d2d2d;
-            border: 1px solid #444;
-        }
-        
-        /* Responsive Tables */
-        .fc-scrollgrid {
-            font-size: 0.9rem;
-        }
-        
+        /* Responsive adjustments */
         @media (min-width: 768px) {
             .fc-header-toolbar {
                 flex-direction: row;
@@ -78,10 +69,6 @@
             }
             .fc-toolbar-title {
                 font-size: 1.5rem;
-            }
-            .fc-event {
-                font-size: 0.95rem;
-                padding: 3px 6px;
             }
         }
     </style>
@@ -98,7 +85,7 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title"><i class="bi bi-plus-circle"></i> Nový Termín</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
                     <form id="eventForm">
@@ -122,8 +109,8 @@
                         </div>
                     </form>
                 </div>
-                <div class="modal-footer d-flex flex-column flex-md-row">
-                    <button type="button" class="btn btn-secondary mb-2 mb-md-0" data-bs-dismiss="modal">
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
                         <i class="bi bi-x-lg"></i> Zrušiť
                     </button>
                     <button type="button" class="btn btn-primary" id="saveBtn">
@@ -140,15 +127,15 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="viewModalTitle"></h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
                     <p><i class="bi bi-clock"></i> <strong>Čas:</strong> <span id="viewModalTime"></span></p>
                     <p><i class="bi bi-card-text"></i> <strong>Popis:</strong></p>
                     <div id="viewModalDescription" class="bg-dark p-2 rounded"></div>
                 </div>
-                <div class="modal-footer d-flex flex-column flex-md-row">
-                    <button type="button" class="btn btn-danger mb-2 mb-md-0 me-md-2" id="deleteBtn">
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-danger me-2" id="deleteBtn">
                         <i class="bi bi-trash"></i> Zmazať
                     </button>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
@@ -160,7 +147,9 @@
     </div>
 
     <!-- Loading Indicator -->
-    
+    <div id="loading">
+        <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"></div>
+    </div>
 
     <!-- JavaScript -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -168,8 +157,28 @@
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/locales/sk.min.js"></script>
     
     <script>
+        // Safe fetch with timeout and loading control
+        function safeFetch(url, options = {}, timeout = 8000) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeout);
+            
+            document.getElementById('loading').style.display = 'flex';
+            
+            return fetch(url, {
+                ...options,
+                signal: controller.signal
+            })
+            .finally(() => {
+                clearTimeout(timeoutId);
+                document.getElementById('loading').style.display = 'none';
+            });
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
-            // Initialize Calendar
+            // Initialize with spinner hidden
+            document.getElementById('loading').style.display = 'none';
+            
+            // Calendar setup
             const calendarEl = document.getElementById('calendar');
             const calendar = new FullCalendar.Calendar(calendarEl, {
                 locale: 'sk',
@@ -179,21 +188,14 @@
                     center: 'title',
                     right: (window.innerWidth < 768) ? '' : 'dayGridMonth,timeGridWeek,timeGridDay'
                 },
-                buttonText: {
-                    today: 'Dnes',
-                    month: 'Mesiac',
-                    week: 'Týždeň',
-                    day: 'Deň'
-                },
-                events: '/api/appointments',
-                eventDisplay: 'block',
-                navLinks: true,
-                height: 'auto',
-                eventMaxStack: 2,
-                eventTimeFormat: {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
+                events: function(fetchInfo, successCallback, failureCallback) {
+                    safeFetch('/api/appointments?start=' + fetchInfo.startStr + '&end=' + fetchInfo.endStr)
+                        .then(response => response.json())
+                        .then(data => successCallback(data))
+                        .catch(error => {
+                            console.error('Error loading events:', error);
+                            failureCallback(error);
+                        });
                 },
                 dateClick: function(info) {
                     const modal = new bootstrap.Modal(document.getElementById('eventModal'));
@@ -205,28 +207,27 @@
                     document.getElementById('viewModalTitle').textContent = info.event.title;
                     
                     const eventTime = new Date(info.event.start);
-                    const timeString = eventTime.toLocaleString('sk-SK', {
+                    document.getElementById('viewModalTime').textContent = eventTime.toLocaleString('sk-SK', {
                         day: 'numeric', 
                         month: 'short', 
                         year: 'numeric',
                         hour: '2-digit', 
                         minute: '2-digit'
                     });
-                    document.getElementById('viewModalTime').textContent = timeString;
                     
-                    const desc = info.event.extendedProps.description || "Žiadny popis";
-                    document.getElementById('viewModalDescription').textContent = desc;
+                    document.getElementById('viewModalDescription').textContent = 
+                        info.event.extendedProps.description || "Žiadny popis";
                     
                     document.getElementById('deleteBtn').onclick = function() {
                         if (confirm('Naozaj chcete zmazať tento termín?')) {
-                            document.getElementById('loading').style.display = 'flex';
-                            fetch(`/api/appointments/${info.event.id}`, {
+                            safeFetch(`/api/appointments/${info.event.id}`, {
                                 method: 'DELETE'
-                            }).then(() => {
+                            })
+                            .then(() => {
                                 modal.hide();
                                 calendar.refetchEvents();
-                                document.getElementById('loading').style.display = 'none';
-                            });
+                            })
+                            .catch(error => alert('Chyba pri mazaní: ' + error));
                         }
                     };
                     
@@ -234,7 +235,7 @@
                 }
             });
             
-            // Save Button Handler
+            // Save handler
             document.getElementById('saveBtn').onclick = function() {
                 const title = document.getElementById('title').value;
                 const date = document.getElementById('date').value;
@@ -246,41 +247,43 @@
                     return;
                 }
 
-                document.getElementById('loading').style.display = 'flex';
-                const dateTime = `${date}T${time}`;
-                
-                fetch('/api/appointments', {
+                safeFetch('/api/appointments', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         title: title,
-                        time: dateTime,
+                        time: `${date}T${time}`,
                         description: description
                     })
-                }).then(response => {
-                    if (!response.ok) throw new Error('Chyba pri ukladaní');
+                })
+                .then(response => {
+                    if (!response.ok) throw new Error('Server error');
                     return response.json();
-                }).then(() => {
+                })
+                .then(() => {
                     bootstrap.Modal.getInstance(document.getElementById('eventModal')).hide();
                     calendar.refetchEvents();
                     document.getElementById('eventForm').reset();
-                }).catch(error => {
-                    alert(error.message);
-                }).finally(() => {
-                    document.getElementById('loading').style.display = 'none';
-                });
+                })
+                .catch(error => alert('Chyba: ' + error.message));
             };
 
-            // Responsive View Switch
+            // Responsive view switching
             window.addEventListener('resize', function() {
-                if (window.innerWidth < 768) {
-                    calendar.changeView('timeGridDay');
-                } else {
-                    calendar.changeView('dayGridMonth');
-                }
+                calendar.changeView(
+                    window.innerWidth < 768 ? 'timeGridDay' : 'dayGridMonth'
+                );
             });
 
             calendar.render();
+        });
+
+        // Global error handling
+        window.addEventListener('error', function() {
+            document.getElementById('loading').style.display = 'none';
+        });
+        window.addEventListener('unhandledrejection', function() {
+            document.getElementById('loading').style.display = 'none';
         });
     </script>
 </body>
